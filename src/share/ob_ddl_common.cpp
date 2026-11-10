@@ -541,6 +541,46 @@ int ObDDLUtil::generate_column_name_str(
   return ret;
 }
 
+int ObDDLUtil::append_quoted_identifier(
+    ObSqlString &sql_string,
+    const ObString &name,
+    const ObString &prefix)
+{
+  int ret = OB_SUCCESS;
+  const char quote_char = '`';
+  if (OB_UNLIKELY(name.length() > 0 && nullptr == name.ptr())
+      || OB_UNLIKELY(prefix.length() > 0 && nullptr == prefix.ptr())) {
+    ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("invalid identifier to quote", K(ret), K(name), K(prefix));
+  } else if (OB_FAIL(sql_string.append(&quote_char, 1))) {
+    LOG_WARN("failed to append quote character", K(ret));
+  } else if (prefix.length() > 0 && OB_FAIL(sql_string.append(prefix))) {
+    LOG_WARN("failed to append identifier prefix", K(ret), K(prefix));
+  } else {
+    int64_t start = 0;
+    for (int64_t i = 0; OB_SUCC(ret) && i < name.length(); ++i) {
+      if (quote_char == name.ptr()[i]) {
+        // Append the text up to and including the embedded quote, then append
+        // the quote once more so that the escape character is doubled.
+        if (OB_FAIL(sql_string.append(name.ptr() + start, i - start + 1))) {
+          LOG_WARN("failed to append identifier", K(ret), K(i));
+        } else if (OB_FAIL(sql_string.append(&quote_char, 1))) {
+          LOG_WARN("failed to append escaped quote character", K(ret), K(i));
+        } else {
+          start = i + 1;
+        }
+      }
+    }
+    if (OB_SUCC(ret) && start < name.length()
+        && OB_FAIL(sql_string.append(name.ptr() + start, name.length() - start))) {
+      LOG_WARN("failed to append identifier", K(ret), K(start));
+    } else if (OB_SUCC(ret) && OB_FAIL(sql_string.append(&quote_char, 1))) {
+      LOG_WARN("failed to append quote character", K(ret));
+    }
+  }
+  return ret;
+}
+
 int ObDDLUtil::generate_column_name_str(
     const ObColumnNameInfo &column_name_info,
     const bool with_origin_name,
@@ -549,30 +589,32 @@ int ObDDLUtil::generate_column_name_str(
     ObSqlString &sql_string)
 {
   int ret = OB_SUCCESS;
-  const char *split_char = "`";
   // append comma
   if (with_comma) {
-    if (OB_FAIL(sql_string.append_fmt(", "))) {
+    if (OB_FAIL(sql_string.append(", "))) {
     }
   }
   // append original column name
   if (OB_SUCC(ret) && with_origin_name) {
     if (column_name_info.is_enum_set_need_cast_) {
       // Enum and set values are cast to unsigned before being appended to a macro block.
-      if (OB_FAIL(sql_string.append_fmt("cast(%s%.*s%s as unsigned)", split_char, column_name_info.column_name_.length(), column_name_info.column_name_.ptr(), split_char))) {
+      if (OB_FAIL(sql_string.append("cast("))) {
+      } else if (OB_FAIL(append_quoted_identifier(sql_string, column_name_info.column_name_, ObString()))) {
+      } else if (OB_FAIL(sql_string.append(" as unsigned)"))) {
       }
-    } else if (OB_FAIL(sql_string.append_fmt("%s%.*s%s", split_char, column_name_info.column_name_.length(), column_name_info.column_name_.ptr(), split_char))) {
+    } else if (OB_FAIL(append_quoted_identifier(sql_string, column_name_info.column_name_, ObString()))) {
     }
   }
   // append AS
   if (OB_SUCC(ret) && with_origin_name && with_alias_name) {
-    if (OB_FAIL(sql_string.append_fmt(" AS "))) {
+    if (OB_FAIL(sql_string.append(" AS "))) {
     }
   }
   // append alias column name
   if (OB_SUCC(ret) && with_alias_name) {
-    if (OB_FAIL(sql_string.append_fmt("%s%s%.*s%s", split_char, column_name_info.is_shadow_column_ ? "__SHADOW_" : "",
-        column_name_info.column_name_.length(), column_name_info.column_name_.ptr(), split_char))) {
+    const ObString shadow_prefix = column_name_info.is_shadow_column_
+        ? ObString::make_string("__SHADOW_") : ObString();
+    if (OB_FAIL(append_quoted_identifier(sql_string, column_name_info.column_name_, shadow_prefix))) {
     }
   }
   return ret;
