@@ -625,6 +625,13 @@ public:
       const bool with_alias_name,
       const bool with_comma,
       ObSqlString &sql_string);
+  // Append an identifier quoted with backticks. Every backtick contained in
+  // name is doubled so that the appended text is always valid SQL, and the
+  // optional prefix is written inside the same quoted identifier.
+  static int append_quoted_identifier(
+      ObSqlString &sql_string,
+      const ObString &name,
+      const ObString &prefix = ObString());
   static int reshape_ddl_column_obj(
       common::ObDatum &datum,
       const ObObjMeta &obj_meta);
